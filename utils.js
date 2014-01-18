@@ -29,3 +29,19 @@ function getReviewText(reviews) {
 					+ "' target='_blank'>") + reviews[0].author_name
 			+ (invalidUrl ? "" : "</a>") + ": " + reviews[0].text;
 }
+
+// find the closest location on a spherical surface from an array of points
+// using the build-in google method, which uses the Haversine formula
+function findClosestLocation(location, array) {
+	var closestDistance = Number.MAX_VALUE;
+	var closestId = -1;
+	for ( var i = 0; i < array.length; ++i) {
+		var distance = google.maps.geometry.spherical.computeDistanceBetween(
+				location.geometry.location, array[i].geometry.location);
+		if (distance < closestDistance) {
+			closestDistance = distance;
+			closestId = i;
+		}
+	}
+	return array[closestId];
+}

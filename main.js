@@ -63,6 +63,7 @@ function createMarker(place) {
 	var marker = new google.maps.Marker({
 		map : map,
 		position : place.geometry.location,
+	    animation: google.maps.Animation.DROP,
 		icon : getIcon(place)
 	});
 	markers.push(marker);
@@ -72,12 +73,49 @@ function createMarker(place) {
 		};
 		service.getDetails(req, function(details, status) {
 			if (status == google.maps.places.PlacesServiceStatus.OK) {
-				infowindow.setContent('<b>' + details.name + '</b>' + '<br>'
-						+ details.formatted_address
-						+ getReviewText(details.reviews));
-				infowindow.open(map, marker);
+				// simple info window for bus stations
+				if (isInArray(details.types, 'bus_station')) {
+					infowindow.setContent('<b>' + details.name + '</b>'
+							+ '<br>' + details.formatted_address
+							+ getReviewText(details.reviews));
+					infowindow.open(map, marker);
+				} else {
+					doAdditionalRadarSearch(place, marker, details);
+				}
 			}
 		});
+	});
+}
+
+function doAdditionalRadarSearch(place, marker, details) {
+	var request = {
+		bounds : map.getBounds(),
+		types : [ 'bus_station' ]
+	};
+	service.radarSearch(request, function(results, status) {
+		if (status == google.maps.places.PlacesServiceStatus.OK) {
+			var closestLocation = findClosestLocation(place, results);
+			if (closestLocation != undefined) {
+				var req = {
+						reference : closestLocation.reference
+					};
+					service.getDetails(req, function(busStopDetails, busStopStatus) {
+						if (busStopStatus == google.maps.places.PlacesServiceStatus.OK) {
+							infowindow.setContent('<b>' + details.name + '</b>' + '<br>'
+									+ details.formatted_address
+									+ getReviewText(details.reviews) + '<br>'
+									+ "closest bus station: " + busStopDetails.name);
+							infowindow.open(map, marker);							
+						}
+					});
+			} else {
+				infowindow.setContent('<b>' + details.name + '</b>' + '<br>'
+						+ details.formatted_address
+						+ getReviewText(details.reviews) + '<br>'
+						+ "closest bus station: " + closestLocation);
+				infowindow.open(map, marker);
+			}
+		}
 	});
 }
 
