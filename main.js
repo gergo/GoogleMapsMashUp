@@ -3,57 +3,42 @@ var infowindow;
 var markers = [];
 var service;
 
+// entry point
 function initialize() {
-	var bp = new google.maps.LatLng(BP_LATITUDE, BP_LONGITUDE);
+	var initialMapCenter = new google.maps.LatLng(BP_LATITUDE, BP_LONGITUDE);
 
+	// initialize global variables
 	map = new google.maps.Map(document.getElementById('map-canvas'), {
-		center : bp,
+		center : initialMapCenter,
 		zoom : 13
 	});
-
 	infowindow = new google.maps.InfoWindow();
 	service = new google.maps.places.PlacesService(map);
 
+	// redraw markers whenever the map changes, ie. becomes 'idle'
 	google.maps.event.addListener(map, 'idle', function() {
 		sendRequests();
 	});
 }
 
 function sendRequests() {
-	for ( var i = 0; i < markers.length; ++i) {
-		markers[i].setMap(null);
-	}
-	markers = [];
+	deleteMarkers(markers);
 
-	var bounds = map.getBounds();
-	var ne = bounds.getNorthEast();
-	var sw = bounds.getSouthWest();
-	var nw = new google.maps.LatLng(ne.lat(), sw.lng());
-	var x = google.maps.geometry.spherical.computeDistanceBetween(ne, nw);
-	var y = google.maps.geometry.spherical.computeDistanceBetween(sw, nw);
-	var radius = Math.min(x, y) / 2;
+	var searchRadius = getSearchRadius(map.getBounds());
+	var searchCenter = map.getCenter();
 
-	var bp = map.getCenter();
-	var req = request(bp, radius, 'restaurant');
-	service.nearbySearch(req, callback);
-	var req1 = request(bp, radius, 'lodging');
-	service.nearbySearch(req1, callback);
-	var req2 = request(bp, radius, 'bus_station');
-	service.nearbySearch(req2, callback);
+	var restaurantRequest = request(searchCenter, searchRadius, 'restaurant');
+	var hotelRequest = request(searchCenter, searchRadius, 'lodging');
+	var busRequest = request(searchCenter, searchRadius, 'bus_station');
+
+	service.nearbySearch(restaurantRequest, createMarkers);
+	service.nearbySearch(hotelRequest, createMarkers);
+	service.nearbySearch(busRequest, createMarkers);
 }
 
-function request(latLng, radius, type) {
-	var request = {
-		location : latLng,
-		radius : radius,
-		types : [ type ]
-	};
-	return request;
-}
-
-function callback(results, status) {
+function createMarkers(results, status) {
 	if (status == google.maps.places.PlacesServiceStatus.OK) {
-		for ( var i = 0; i < results.length; i++) {
+		for ( var i = 0; i < results.length; ++i) {
 			createMarker(results[i]);
 		}
 	}
@@ -63,60 +48,70 @@ function createMarker(place) {
 	var marker = new google.maps.Marker({
 		map : map,
 		position : place.geometry.location,
-	    animation: google.maps.Animation.DROP,
+		animation : google.maps.Animation.DROP,
 		icon : getIcon(place)
 	});
+	// store marker object so we can remove it if the map changes
 	markers.push(marker);
+
 	google.maps.event.addListener(marker, 'click', function() {
-		var req = {
-			reference : place.reference
-		};
-		service.getDetails(req, function(details, status) {
-			if (status == google.maps.places.PlacesServiceStatus.OK) {
-				// simple info window for bus stations
-				if (isInArray(details.types, 'bus_station')) {
-					infowindow.setContent('<b>' + details.name + '</b>'
-							+ '<br>' + details.formatted_address
-							+ getReviewText(details.reviews));
-					infowindow.open(map, marker);
-				} else {
-					doAdditionalRadarSearch(place, marker, details);
-				}
-			}
-		});
+		onMarkerClicked(place, marker);
 	});
 }
 
-function doAdditionalRadarSearch(place, marker, details) {
-	var request = {
-		bounds : map.getBounds(),
-		types : [ 'bus_station' ]
+function onMarkerClicked(place, marker) {
+	var locationDetailsRequest = {
+		reference : place.reference
 	};
-	service.radarSearch(request, function(results, status) {
+	service.getDetails(locationDetailsRequest, function(locationDetails, status) {
 		if (status == google.maps.places.PlacesServiceStatus.OK) {
-			var closestLocation = findClosestLocation(place, results);
-			if (closestLocation != undefined) {
-				var req = {
-						reference : closestLocation.reference
-					};
-					service.getDetails(req, function(busStopDetails, busStopStatus) {
-						if (busStopStatus == google.maps.places.PlacesServiceStatus.OK) {
-							infowindow.setContent('<b>' + details.name + '</b>' + '<br>'
-									+ details.formatted_address
-									+ getReviewText(details.reviews) + '<br>'
-									+ "closest bus station: " + busStopDetails.name);
-							infowindow.open(map, marker);							
-						}
-					});
-			} else {
-				infowindow.setContent('<b>' + details.name + '</b>' + '<br>'
-						+ details.formatted_address
-						+ getReviewText(details.reviews) + '<br>'
-						+ "closest bus station: " + closestLocation);
+			// simple info window for bus stations
+			if (isInArray(locationDetails.types, 'bus_station')) {
+				infowindow.setContent(getBasicLocationInfo(locationDetails));
 				infowindow.open(map, marker);
+			} else {
+				doAdditionalRadarSearch(place, marker, locationDetails);
 			}
 		}
 	});
+}
+
+// for hotels and restaurants we need to show a link to the nearest bus stop
+// on the info window along with basic location details
+function doAdditionalRadarSearch(place, marker, locationDetails) {
+	var busStationSearchRequest = {
+		bounds : map.getBounds(),
+		types : [ 'bus_station' ]
+	};
+	service.radarSearch(busStationSearchRequest, function(busStations, status) {
+		if (status == google.maps.places.PlacesServiceStatus.OK) {
+			var closestBusStop = findClosestLocation(place, busStations);
+			if (closestBusStop == undefined) {
+				infowindow.setContent(getBasicLocationInfo(details));
+				infowindow.open(map, marker);
+			} else {
+				getBusStopDetails(locationDetails, closestBusStop, marker);
+			}
+		}
+	});
+}
+
+function getBusStopDetails(locationDetails, busStop, marker) {
+	var req = {
+		reference : busStop.reference
+	};
+	service.getDetails(req, function(busStopDetails, status) {
+		if (status == google.maps.places.PlacesServiceStatus.OK) {
+			infowindow.setContent(getBusStopDetailsInfo(locationDetails,
+					busStopDetails));
+			infowindow.open(map, marker);
+		}
+	});
+}
+
+function moveMapTo(latitude, longitude) {
+	var newCenter = new google.maps.LatLng(latitude, longitude);
+	map.panTo(newCenter);
 }
 
 google.maps.event.addDomListener(window, 'load', initialize);
