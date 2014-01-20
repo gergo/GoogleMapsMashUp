@@ -42,11 +42,16 @@ function getReviewText(reviews) {
 }
 
 // remove existing markers. called whenever we change visible map
-function deleteMarkers(markers) {
+function removeUnseenMarkers(markers, bounds) {
+	var markersToKeep = [];
 	for ( var i = 0; i < markers.length; ++i) {
-		markers[i].setMap(null);
+		if (bounds.contains(markers[i].getPosition())) {
+			markersToKeep.push(markers[i]);
+		} else {
+			markers[i].setMap(null);
+		}
 	}
-	markers = [];
+	return markersToKeep;
 }
 
 // find the closest location on a spherical surface from an array of points

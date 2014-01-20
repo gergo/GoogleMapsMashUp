@@ -1,7 +1,10 @@
 var map;
 var infowindow;
-var markers = [];
 var service;
+
+var hotels = [];
+var bus_stops = [];
+var restaurants = [];
 
 // entry point
 function initialize() {
@@ -22,7 +25,9 @@ function initialize() {
 }
 
 function sendRequests() {
-	deleteMarkers(markers);
+	hotels = removeUnseenMarkers(hotels, map.getBounds());
+	bus_stops = removeUnseenMarkers(bus_stops, map.getBounds());
+	restaurants = removeUnseenMarkers(restaurants, map.getBounds());
 
 	var searchRadius = getSearchRadius(map.getBounds());
 	var searchCenter = map.getCenter();
@@ -31,32 +36,52 @@ function sendRequests() {
 	var hotelRequest = request(searchCenter, searchRadius, 'lodging');
 	var busRequest = request(searchCenter, searchRadius, 'bus_station');
 
-	service.nearbySearch(restaurantRequest, createMarkers);
-	service.nearbySearch(hotelRequest, createMarkers);
-	service.nearbySearch(busRequest, createMarkers);
+	service.nearbySearch(restaurantRequest, function(results, status) {
+		createMarkers(results, status, restaurants);
+	});
+	service.nearbySearch(hotelRequest, function(results, status) {
+		createMarkers(results, status, hotels);
+	});
+	service.nearbySearch(busRequest, function(results, status) {
+		createMarkers(results, status, bus_stops);
+	});
 }
 
-function createMarkers(results, status) {
+function createMarkers(results, status, existingMarkers) {
 	if (status == google.maps.places.PlacesServiceStatus.OK) {
 		for ( var i = 0; i < results.length; ++i) {
-			createMarker(results[i]);
+			if (existingMarkers.length < 20) {
+				createMarker(results[i], existingMarkers);
+			}
 		}
 	}
 }
 
-function createMarker(place) {
-	var marker = new google.maps.Marker({
-		map : map,
-		position : place.geometry.location,
-		animation : google.maps.Animation.DROP,
-		icon : getIcon(place)
-	});
-	// store marker object so we can remove it if the map changes
-	markers.push(marker);
+function createMarker(place, existingMarkers) {	
+	var loc = place.geometry.location;
+	var containsMarker = false;
+	for (var i = 0; i < existingMarkers.length; ++i) {
+		if (existingMarkers[i].position.equals(loc)) {
+			containsMarker = true;
+			break;
+		}
+	}
+	
+	if (!containsMarker) {
+		var marker = new google.maps.Marker({
+			map : map,
+			position : place.geometry.location,
+			animation : google.maps.Animation.DROP,
+			icon : getIcon(place)
+		});
+		
+		// store marker object so we can remove it if the map changes
+		existingMarkers.push(marker);
 
-	google.maps.event.addListener(marker, 'click', function() {
-		onMarkerClicked(place, marker);
-	});
+		google.maps.event.addListener(marker, 'click', function() {
+			onMarkerClicked(place, marker);
+		});
+	}
 }
 
 function onMarkerClicked(place, marker) {
